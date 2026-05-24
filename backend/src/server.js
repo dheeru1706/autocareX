@@ -169,6 +169,36 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // =============================================
+// MIGRATIONS & SEED (run after port binds)
+// =============================================
+
+function runMigrationsAndSeed() {
+  const { exec } = require('child_process');
+  const path = require('path');
+  const scriptsDir = path.join(__dirname, '..', 'scripts');
+
+  logger.info('[migrate] Running database migrations...');
+  exec(`node ${path.join(scriptsDir, 'migrate.js')}`, { cwd: path.join(__dirname, '..') }, (err, stdout, stderr) => {
+    if (stdout) process.stdout.write(stdout);
+    if (stderr) process.stderr.write(stderr);
+    if (err) {
+      logger.error('[migrate] Migration failed — skipping seed', { error: err.message });
+      return;
+    }
+    logger.info('[migrate] Migration complete. Running seed-admin...');
+    exec(`node ${path.join(scriptsDir, 'seed-admin.js')}`, { cwd: path.join(__dirname, '..') }, (err2, stdout2, stderr2) => {
+      if (stdout2) process.stdout.write(stdout2);
+      if (stderr2) process.stderr.write(stderr2);
+      if (err2) {
+        logger.warn('[seed] seed-admin failed (non-fatal)', { error: err2.message });
+      } else {
+        logger.info('[seed] Admin user seeded successfully');
+      }
+    });
+  });
+}
+
+// =============================================
 // STARTUP
 // =============================================
 
@@ -217,8 +247,10 @@ async function start() {
       logger.warn('Firebase initialization skipped', { error: err.message });
     }
 
-    // Start cron jobs (only if DB is up)
+    // Run DB migrations + seed admin in the background (non-blocking)
+    // Runs AFTER the port is bound so the health check already passes.
     if (dbOk) {
+      setImmediate(() => runMigrationsAndSeed());
       setupCronJobs();
     }
 
