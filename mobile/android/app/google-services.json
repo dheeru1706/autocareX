@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "000000000000",
-    "project_id": "autocareX-app",
-    "storage_bucket": "autocareX-app.appspot.com"
+    "project_number": "TODO_REPLACE_WITH_PROJECT_NUMBER",
+    "project_id": "autocarex-app",
+    "storage_bucket": "autocarex-app.appspot.com"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "mobilesdk_app_id": "TODO_REPLACE_WITH_MOBILESDK_APP_ID",
         "android_client_info": {
           "package_name": "com.autocareX.app"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "YOUR_GOOGLE_SERVICES_API_KEY"
+          "current_key": "TODO_REPLACE_WITH_ANDROID_API_KEY"
         }
       ],
       "services": {

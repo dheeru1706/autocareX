@@ -14,13 +14,23 @@ class AppConstants {
   static const int sendTimeout = 30000;
 
   // Google Maps
-  static const String googleMapsApiKey = 'YOUR_GOOGLE_MAPS_API_KEY';
+  // Replace with your key from https://console.cloud.google.com → Maps SDK for Android / iOS
+  // Then add to GitHub Actions secret GOOGLE_MAPS_API_KEY and wire it via --dart-define
+  static const String googleMapsApiKey = String.fromEnvironment(
+    'GOOGLE_MAPS_API_KEY',
+    defaultValue: '', // empty = maps load without features until key is set
+  );
   static const double defaultLatitude = 12.9716;
   static const double defaultLongitude = 77.5946;
   static const double defaultMapZoom = 14.0;
 
   // Razorpay
-  static const String razorpayKey = 'YOUR_RAZORPAY_KEY_ID';
+  // Replace with your key from https://dashboard.razorpay.com → Settings → API Keys
+  // Add to GitHub Actions secret RAZORPAY_KEY_ID and wire via --dart-define
+  static const String razorpayKey = String.fromEnvironment(
+    'RAZORPAY_KEY_ID',
+    defaultValue: '', // empty = payment screen shows setup message
+  );
   static const String razorpayName = 'AutoCareX';
   static const String razorpayDescription = 'Payment for AutoCareX services';
 

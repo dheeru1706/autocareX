@@ -60,12 +60,24 @@ jobs:
       # ── Build AAB (Play Store) ────────────────────────────────
       - name: Build release AAB
         working-directory: mobile
-        run: flutter build appbundle --release --build-number=${{ github.run_number }}
+        run: |
+          flutter build appbundle --release \
+            --build-number=${{ github.run_number }} \
+            --dart-define=GOOGLE_MAPS_API_KEY=${{ secrets.GOOGLE_MAPS_API_KEY }} \
+            --dart-define=RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
 
       # ── Build APK (direct install / testing) ──────────────────
       - name: Build release APK
         working-directory: mobile
-        run: flutter build apk --release --split-per-abi --build-number=${{ github.run_number }}
+        run: |
+          flutter build apk --release --split-per-abi \
+            --build-number=${{ github.run_number }} \
+            --dart-define=GOOGLE_MAPS_API_KEY=${{ secrets.GOOGLE_MAPS_API_KEY }} \
+            --dart-define=RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
 
       # ── Upload artifacts ──────────────────────────────────────
       - name: Upload AAB

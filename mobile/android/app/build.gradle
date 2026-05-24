@@ -49,6 +49,10 @@ android {
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true
+
+        // Inject Google Maps API key from gradle property (set via --dart-define or local.properties)
+        def mapsKey = project.findProperty('GOOGLE_MAPS_API_KEY') ?: ''
+        manifestPlaceholders += [GOOGLE_MAPS_API_KEY: mapsKey]
     }
 
     signingConfigs {

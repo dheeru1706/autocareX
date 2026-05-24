@@ -1,0 +1,131 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/build-ios.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build iOS Release IPA
+    runs-on: macos-latest   # Must be macOS — Xcode is macOS-only
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Flutter ───────────────────────────────────────────────
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+
+      # ── Firebase iOS config ───────────────────────────────────
+      - name: Write GoogleService-Info.plist
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICES_IOS_PLIST }}' > mobile/ios/Runner/GoogleService-Info.plist
+
+      # ── iOS Code Signing ──────────────────────────────────────
+      # Requires these GitHub secrets:
+      #   IOS_CERTIFICATE_P12      — base64-encoded .p12 distribution certificate
+      #   IOS_CERTIFICATE_PASSWORD — certificate password
+      #   IOS_PROVISIONING_PROFILE — base64-encoded .mobileprovision file
+      #   APPLE_TEAM_ID            — Your 10-char Apple Team ID (e.g. A1B2C3D4E5)
+      - name: Import signing certificate
+        env:
+          IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create a temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Decode and import the certificate
+          echo "$IOS_CERTIFICATE_P12" | base64 --decode > /tmp/certificate.p12
+          security import /tmp/certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Install provisioning profile
+        env:
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/autocareX.mobileprovision
+
+      # ── Update ExportOptions.plist with real Team ID ───────────
+      - name: Set Apple Team ID
+        run: |
+          /usr/libexec/PlistBuddy -c \
+            "Set :teamID ${{ secrets.APPLE_TEAM_ID }}" \
+            mobile/ios/ExportOptions.plist
+
+      # ── Dependencies ──────────────────────────────────────────
+      - name: Flutter pub get
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Install CocoaPods
+        working-directory: mobile/ios
+        run: pod install --repo-update
+
+      # ── Build iOS archive ─────────────────────────────────────
+      - name: Build iOS release
+        working-directory: mobile
+        run: |
+          flutter build ios --release \
+            --no-codesign \
+            --build-number=${{ github.run_number }} \
+            --dart-define=GOOGLE_MAPS_API_KEY=${{ secrets.GOOGLE_MAPS_API_KEY }} \
+            --dart-define=RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
+
+      - name: Archive and export IPA
+        run: |
+          xcodebuild -workspace mobile/ios/Runner.xcworkspace \
+            -scheme Runner \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/Runner.xcarchive \
+            archive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }}
+
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/Runner.xcarchive \
+            -exportOptionsPlist mobile/ios/ExportOptions.plist \
+            -exportPath $RUNNER_TEMP/export
+
+      # ── Upload IPA artifact ────────────────────────────────────
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: autocareX-release-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          retention-days: 30
+
+      # ── (Optional) Upload to TestFlight ───────────────────────
+      # Uncomment when you have App Store Connect API key:
+      # - name: Upload to TestFlight
+      #   uses: apple-actions/upload-testflight-build@v1
+      #   with:
+      #     app-path: ${{ runner.temp }}/export/autocareX.ipa
+      #     issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+      #     api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
+      #     api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
