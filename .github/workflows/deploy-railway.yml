@@ -17,15 +17,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
+      - name: Trigger Railway redeploy via GraphQL API
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway up \
-            --service 90ed4d19-42b9-46c0-82fa-e03af9622a60 \
-            --environment 352fcb21-d621-4080-b105-177bce40f4f0 \
-            --detach
-        working-directory: backend
+          RESPONSE=$(curl -s -X POST "https://backboard.railway.com/graphql/v2" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -d '{
+              "query": "mutation { serviceInstanceRedeploy(serviceId: \"90ed4d19-42b9-46c0-82fa-e03af9622a60\", environmentId: \"352fcb21-d621-4080-b105-177bce40f4f0\") }"
+            }')
+          echo "Response: $RESPONSE"
+          echo "$RESPONSE" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          if d.get('data', {}).get('serviceInstanceRedeploy') == True:
+              print('✅ Railway redeploy triggered successfully')
+          else:
+              print('❌ Deploy failed:', d)
+              exit(1)
+          "
