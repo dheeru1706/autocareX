@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
 class _Transaction {
   final String id;

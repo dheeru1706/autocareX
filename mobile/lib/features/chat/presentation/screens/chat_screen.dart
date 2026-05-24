@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
 class ChatMessage {
   final String id;
