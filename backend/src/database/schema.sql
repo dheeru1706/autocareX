@@ -53,6 +53,7 @@ CREATE TABLE users (
     is_active       BOOLEAN NOT NULL DEFAULT true,
     fcm_token       TEXT,
     language        VARCHAR(10) NOT NULL DEFAULT 'en',
+    password_hash   TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
