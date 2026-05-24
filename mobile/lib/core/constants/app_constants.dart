@@ -7,8 +7,8 @@ class AppConstants {
   static const String bundleId = 'com.autocareX.app';
 
   // API Configuration
-  static const String baseUrl = 'https://api.autocareX.in/v1';
-  static const String wsUrl = 'wss://ws.autocareX.in';
+  static const String baseUrl = 'https://autocarex-production.up.railway.app/api/v1';
+  static const String wsUrl = 'wss://autocarex-production.up.railway.app';
   static const int connectTimeout = 30000;
   static const int receiveTimeout = 30000;
   static const int sendTimeout = 30000;
