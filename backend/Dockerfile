@@ -45,8 +45,8 @@ COPY --from=deps --chown=nodejs:nodejs /app/node_modules ./node_modules
 # Copy application source
 COPY --chown=nodejs:nodejs . .
 
-# Create log directory
-RUN mkdir -p logs && chown nodejs:nodejs logs
+# Create log and tmp directories (cache-bust: v2)
+RUN mkdir -p logs /tmp/logs && chown nodejs:nodejs logs /tmp/logs
 
 # Switch to non-root user
 USER nodejs
