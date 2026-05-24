@@ -1,0 +1,91 @@
+version: '3.8'
+
+# Development overrides — use with:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: devpassword123
+
+  redis:
+    command: redis-server --requirepass devredis123 --appendonly yes
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      target: development
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://autocareX:devpassword123@postgres:5432/autocareX_dev
+      REDIS_URL: redis://:devredis123@redis:6379
+      DEBUG: "autocareX:*"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: npm run dev
+    ports:
+      - "3000:3000"
+      - "9229:9229"    # Node.js debug port
+
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./admin:/app
+      - /app/node_modules
+    ports:
+      - "3001:3001"
+    environment:
+      VITE_API_URL: http://localhost:3000/api/v1
+      CHOKIDAR_USEPOLLING: "true"
+    command: npm run dev -- --host 0.0.0.0 --port 3001
+
+  worker:
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: npm run dev:worker
+
+  # ─── pgAdmin for development ─────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: autocareX_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@autocareX.dev
+      PGADMIN_DEFAULT_PASSWORD: pgadmin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - autocareX_network
+
+  # ─── Redis Commander UI ───────────────────────────────────
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: autocareX_redis_ui
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:devredis123
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - autocareX_network
+
+  # ─── Mailhog (email testing) ──────────────────────────────
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: autocareX_mailhog
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+    networks:
+      - autocareX_network

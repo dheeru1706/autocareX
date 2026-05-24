@@ -1,0 +1,262 @@
+name: Deploy — Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Skip tests (emergency deploy only)'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Run CI before deploy (unless skipped)
+  # ─────────────────────────────────────────────────────────────
+  ci-check:
+    name: CI Gate
+    uses: ./.github/workflows/ci.yml
+    if: ${{ github.event.inputs.skip_tests != 'true' }}
+    secrets: inherit
+
+  # ─────────────────────────────────────────────────────────────
+  # Build & Push Docker images to ECR
+  # ─────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    needs: [ci-check]
+    if: always() && (needs.ci-check.result == 'success' || needs.ci-check.result == 'skipped')
+
+    outputs:
+      backend_image: ${{ steps.build-backend.outputs.image }}
+      admin_image: ${{ steps.build-admin.outputs.image }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push backend image
+        id: build-backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/autocareX-backend:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_REGISTRY }}/autocareX-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NODE_ENV=production
+
+      - name: Set backend image output
+        id: set-backend
+        run: echo "image=${{ env.ECR_REGISTRY }}/autocareX-backend:${{ env.IMAGE_TAG }}" >> $GITHUB_OUTPUT
+
+      - name: Build & push admin image
+        id: build-admin
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/autocareX-admin:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_REGISTRY }}/autocareX-admin:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VITE_API_URL=https://api.autocareX.in/api/v1
+
+  # ─────────────────────────────────────────────────────────────
+  # Deploy to EC2
+  # ─────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Production EC2
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        with:
+          host: ${{ secrets.PROD_EC2_HOST }}
+          username: ${{ secrets.PROD_EC2_USER }}
+          key: ${{ secrets.PROD_EC2_SSH_KEY }}
+          envs: IMAGE_TAG,ECR_REGISTRY,AWS_REGION
+          script: |
+            set -e
+
+            echo "=== AutoCareX Production Deploy ==="
+            echo "Image tag: $IMAGE_TAG"
+            echo "Timestamp: $(date -u)"
+
+            # Login to ECR
+            aws ecr get-login-password --region $AWS_REGION | \
+              docker login --username AWS --password-stdin $ECR_REGISTRY
+
+            # Pull new images
+            echo "Pulling new images..."
+            docker pull $ECR_REGISTRY/autocareX-backend:$IMAGE_TAG
+            docker pull $ECR_REGISTRY/autocareX-admin:$IMAGE_TAG
+
+            # Tag as latest
+            docker tag $ECR_REGISTRY/autocareX-backend:$IMAGE_TAG autocareX-backend:latest
+            docker tag $ECR_REGISTRY/autocareX-admin:$IMAGE_TAG autocareX-admin:latest
+
+            # Navigate to project directory
+            cd /opt/autocareX
+
+            # Update .env IMAGE_TAG
+            sed -i "s/IMAGE_TAG=.*/IMAGE_TAG=$IMAGE_TAG/" .env
+
+            # Run database migrations BEFORE switching traffic
+            echo "Running database migrations..."
+            docker-compose run --rm backend node src/database/migrate.js
+            echo "Migrations complete."
+
+            # Rolling restart: backend first, then admin
+            echo "Restarting backend..."
+            docker-compose up -d --no-deps --scale backend=2 backend
+            sleep 15
+
+            # Health check new backend
+            for i in $(seq 1 10); do
+              if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
+                echo "Backend healthy after $i attempts"
+                break
+              fi
+              echo "Waiting for backend... attempt $i"
+              sleep 5
+            done
+
+            # Scale back down
+            docker-compose up -d --no-deps --scale backend=1 backend
+
+            # Restart admin
+            echo "Restarting admin panel..."
+            docker-compose up -d --no-deps admin
+
+            # Reload nginx
+            echo "Reloading nginx..."
+            docker-compose exec -T nginx nginx -s reload
+
+            # Clean up old images (keep last 5)
+            docker images $ECR_REGISTRY/autocareX-backend --format "{{.ID}} {{.CreatedAt}}" | \
+              sort -k2 -r | tail -n +6 | awk '{print $1}' | xargs -r docker rmi || true
+            docker images $ECR_REGISTRY/autocareX-admin --format "{{.ID}} {{.CreatedAt}}" | \
+              sort -k2 -r | tail -n +6 | awk '{print $1}' | xargs -r docker rmi || true
+
+            echo "=== Deploy complete! ==="
+
+      - name: Run post-deploy smoke tests
+        run: |
+          echo "Running smoke tests..."
+          sleep 10
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.autocareX.in/health)
+          if [ "$STATUS" != "200" ]; then
+            echo "SMOKE TEST FAILED: API health returned HTTP $STATUS"
+            exit 1
+          fi
+          echo "API health check: OK"
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://admin.autocareX.in)
+          if [ "$STATUS" != "200" ]; then
+            echo "SMOKE TEST FAILED: Admin panel returned HTTP $STATUS"
+            exit 1
+          fi
+          echo "Admin panel health check: OK"
+
+  # ─────────────────────────────────────────────────────────────
+  # Notify on success or failure
+  # ─────────────────────────────────────────────────────────────
+  notify:
+    name: Slack Notification
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: always()
+
+    steps:
+      - name: Notify Slack — Success
+        if: needs.deploy.result == 'success'
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "channel": "#autocareX-deploys",
+              "username": "Deploy Bot",
+              "icon_emoji": ":rocket:",
+              "text": "✅ *Production Deploy Successful*",
+              "attachments": [{
+                "color": "#2eb886",
+                "fields": [
+                  { "title": "Commit", "value": "<${{ github.event.head_commit.url }}|${{ github.sha }}>" },
+                  { "title": "Author", "value": "${{ github.actor }}" },
+                  { "title": "Message", "value": "${{ github.event.head_commit.message }}" },
+                  { "title": "Admin Panel", "value": "<https://admin.autocareX.in|admin.autocareX.in>", "short": true },
+                  { "title": "API", "value": "<https://api.autocareX.in/health|api.autocareX.in>", "short": true }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify Slack — Failure
+        if: needs.deploy.result == 'failure'
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "channel": "#autocareX-deploys",
+              "username": "Deploy Bot",
+              "icon_emoji": ":x:",
+              "text": "❌ *Production Deploy FAILED* — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>",
+              "attachments": [{
+                "color": "#e01e5a",
+                "fields": [
+                  { "title": "Commit", "value": "<${{ github.event.head_commit.url }}|${{ github.sha }}>" },
+                  { "title": "Author", "value": "${{ github.actor }}" },
+                  { "title": "Action Required", "value": "Check logs and rollback if needed" }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

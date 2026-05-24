@@ -1,0 +1,6 @@
+# KEEP THIS FILE PRIVATE — never commit to git
+# Generate keystore: keytool -genkey -v -keystore autocareX.keystore -keyalg RSA -keysize 2048 -validity 10000 -alias autocareX
+storePassword=YOUR_KEYSTORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=autocareX
+storeFile=../autocareX.keystore

@@ -1,0 +1,27 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # Enforce good Dart practices
+    always_declare_return_types: true
+    avoid_empty_else: true
+    avoid_print: false  # Allow print for debug
+    avoid_unnecessary_containers: true
+    avoid_unused_constructor_parameters: true
+    cancel_subscriptions: true
+    close_sinks: true
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    prefer_final_fields: true
+    sized_box_for_whitespace: true
+    use_super_parameters: true
+
+analyzer:
+  errors:
+    missing_return: warning
+    unused_import: warning
+    unused_local_variable: warning
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "build/**"

@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment files (KEEP .env.example, ignore actual .env)
+.env
+.env.local
+.env.development
+.env.production
+**/.env
+**/.env.local
+!**/.env.example
+!**/.env.production  
+
+# Android signing (KEEP in safe place, not git)
+mobile/autocareX.keystore
+mobile/android/key.properties
+mobile/android/local.properties
+
+# Build outputs
+dist/
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.g.dart
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/settings.json
+*.iml
+
+# Flutter
+mobile/.dart_tool/
+mobile/build/
+mobile/android/.gradle/
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/ios/Flutter/Flutter.framework
+mobile/ios/Flutter/Flutter.podspec
+
+# Coverage
+coverage/
