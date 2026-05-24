@@ -12,8 +12,10 @@ module.exports = {
   },
   rules: {
     'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+    'no-empty': 'warn',
     'no-console': 'off',
     'no-process-exit': 'off',
+    'no-prototype-builtins': 'warn',
   },
   ignorePatterns: ['node_modules/', 'coverage/', 'dist/', 'logs/'],
 };
