@@ -17,22 +17,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Trigger Railway redeploy via GraphQL API
+      - name: Deploy to Railway via GraphQL API (with current commit SHA)
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
+          COMMIT_SHA="${{ github.sha }}"
+          SERVICE_ID="90ed4d19-42b9-46c0-82fa-e03af9622a60"
+          ENV_ID="352fcb21-d621-4080-b105-177bce40f4f0"
+
+          echo "Deploying commit $COMMIT_SHA to Railway..."
+
           RESPONSE=$(curl -s -X POST "https://backboard.railway.com/graphql/v2" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $RAILWAY_TOKEN" \
-            -d '{
-              "query": "mutation { serviceInstanceRedeploy(serviceId: \"90ed4d19-42b9-46c0-82fa-e03af9622a60\", environmentId: \"352fcb21-d621-4080-b105-177bce40f4f0\") }"
-            }')
+            -d "{
+              \"query\": \"mutation { serviceInstanceDeployV2(serviceId: \\\"$SERVICE_ID\\\", environmentId: \\\"$ENV_ID\\\", commitSha: \\\"$COMMIT_SHA\\\") }\"
+            }")
+
           echo "Response: $RESPONSE"
+
           echo "$RESPONSE" | python3 -c "
           import json, sys
           d = json.load(sys.stdin)
-          if d.get('data', {}).get('serviceInstanceRedeploy') == True:
-              print('✅ Railway redeploy triggered successfully')
+          dep_id = d.get('data', {}).get('serviceInstanceDeployV2')
+          if dep_id:
+              print(f'✅ Railway deployment triggered: {dep_id}')
           else:
               print('❌ Deploy failed:', d)
               exit(1)
