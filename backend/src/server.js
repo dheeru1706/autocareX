@@ -1,18 +1,28 @@
 'use strict';
 
+process.stderr.write('[SERVER] server.js loading\n');
 require('dotenv').config();
+process.stderr.write('[SERVER] dotenv loaded\n');
 
 const http = require('http');
+process.stderr.write('[SERVER] requiring ./app...\n');
 const app = require('./app');
+process.stderr.write('[SERVER] ./app loaded\n');
 const { initializeSocket } = require('./websocket/socket');
 const { testConnection, closePool } = require('./config/database');
+process.stderr.write('[SERVER] database loaded\n');
 const { connectRedis, disconnectRedis } = require('./config/redis');
+process.stderr.write('[SERVER] redis loaded\n');
 const { initializeFirebase } = require('./config/firebase');
+process.stderr.write('[SERVER] firebase loaded\n');
 const logger = require('./utils/logger');
+process.stderr.write('[SERVER] logger loaded\n');
 const cron = require('node-cron');
+process.stderr.write('[SERVER] all modules loaded\n');
 
 const PORT = parseInt(process.env.PORT, 10) || 8000;
 const HOST = process.env.HOST || '0.0.0.0';
+process.stderr.write(`[SERVER] PORT=${PORT} HOST=${HOST}\n`);
 
 const server = http.createServer(app);
 
