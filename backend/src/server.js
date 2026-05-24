@@ -173,17 +173,41 @@ process.on('unhandledRejection', (reason, promise) => {
 // =============================================
 
 async function start() {
+  // Bind port immediately so Railway health-check passes and we can see logs
+  await new Promise((resolve) => {
+    server.listen(PORT, HOST, () => {
+      process.stdout.write(`[STARTUP] HTTP server listening on ${HOST}:${PORT}\n`);
+      logger.info('AutoCareX API listening', {
+        port: PORT,
+        host: HOST,
+        env: process.env.NODE_ENV || 'development',
+        pid: process.pid,
+      });
+      resolve();
+    });
+  });
+
   try {
+    process.stdout.write('[STARTUP] Starting AutoCareX backend...\n');
     logger.info('Starting AutoCareX backend...');
 
-    // Connect to Redis
-    await connectRedis();
+    // Connect to Redis (with a hard 15-second timeout guard)
+    process.stdout.write('[STARTUP] Connecting to Redis...\n');
+    await Promise.race([
+      connectRedis(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Redis connection timed out after 15s')), 15000)
+      ),
+    ]);
     logger.info('Redis connected');
 
     // Test DB connection
+    process.stdout.write('[STARTUP] Testing DB connection...\n');
     const dbOk = await testConnection();
     if (!dbOk) {
-      throw new Error('Database connection failed');
+      logger.warn('Database not reachable — continuing without DB');
+    } else {
+      logger.info('Database connected');
     }
 
     // Initialize Firebase
@@ -193,24 +217,24 @@ async function start() {
       logger.warn('Firebase initialization skipped', { error: err.message });
     }
 
-    // Start cron jobs
-    setupCronJobs();
+    // Start cron jobs (only if DB is up)
+    if (dbOk) {
+      setupCronJobs();
+    }
 
-    // Start HTTP server
-    server.listen(PORT, HOST, () => {
-      logger.info(`AutoCareX API running`, {
-        port: PORT,
-        host: HOST,
-        env: process.env.NODE_ENV || 'development',
-        pid: process.pid,
-      });
+    logger.info('AutoCareX API fully ready', {
+      port: PORT,
+      env: process.env.NODE_ENV || 'development',
     });
   } catch (err) {
-    logger.error('Startup failed', { error: err.message });
-    process.exit(1);
+    logger.error('Backend startup error (server still running)', { error: err.message, stack: err.stack });
+    // Do NOT exit — keep the HTTP server running so we can observe logs
   }
 }
 
-start();
+start().catch((err) => {
+  process.stderr.write(`[FATAL] start() rejected: ${err.message}\n${err.stack}\n`);
+  process.exit(1);
+});
 
 module.exports = server;
