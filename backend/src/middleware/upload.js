@@ -1,10 +1,8 @@
 'use strict';
 
 const multer = require('multer');
-const multerS3 = require('multer-s3');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
-const { s3, BUCKET_NAME } = require('../config/aws');
 const { error } = require('../utils/response');
 const logger = require('../utils/logger');
 
@@ -13,11 +11,34 @@ const ALLOWED_DOC_TYPES = ['application/pdf', ...ALLOWED_IMAGE_TYPES];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_DOC_SIZE = 20 * 1024 * 1024; // 20MB
 
+const S3_CONFIGURED =
+  !!process.env.AWS_ACCESS_KEY_ID &&
+  !!process.env.AWS_SECRET_ACCESS_KEY &&
+  !!process.env.AWS_S3_BUCKET;
+
+if (!S3_CONFIGURED) {
+  logger.warn('AWS S3 not configured — file uploads will use in-memory storage (files not persisted)');
+}
+
 function sanitizeFilename(originalname) {
   return path.basename(originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
-function createS3Storage(folderPath) {
+/**
+ * Returns an S3 storage engine when AWS env vars are present,
+ * otherwise falls back to in-memory storage (useful for local dev
+ * or when S3 is not yet wired up in production).
+ */
+function createStorage(folderPath) {
+  if (!S3_CONFIGURED) {
+    return multer.memoryStorage();
+  }
+
+  // Lazy-require aws config and multer-s3 so the module loads cleanly
+  // even when AWS credentials are absent.
+  const multerS3 = require('multer-s3');
+  const { s3, BUCKET_NAME } = require('../config/aws');
+
   return multerS3({
     s3,
     bucket: BUCKET_NAME,
@@ -36,10 +57,6 @@ function createS3Storage(folderPath) {
       });
     },
   });
-}
-
-function memoryStorage() {
-  return multer.memoryStorage();
 }
 
 function imageFilter(req, file, cb) {
@@ -78,44 +95,44 @@ function handleMulterError(err, req, res, next) {
 // --- Configured upload instances ---
 
 const uploadVehicleImages = multer({
-  storage: createS3Storage('vehicles'),
+  storage: createStorage('vehicles'),
   fileFilter: imageFilter,
   limits: { fileSize: MAX_IMAGE_SIZE, files: 5 },
 });
 
 const uploadAvatar = multer({
-  storage: createS3Storage('avatars'),
+  storage: createStorage('avatars'),
   fileFilter: imageFilter,
   limits: { fileSize: MAX_IMAGE_SIZE, files: 1 },
 });
 
 const uploadKycDocuments = multer({
-  storage: createS3Storage('kyc'),
+  storage: createStorage('kyc'),
   fileFilter: documentFilter,
   limits: { fileSize: MAX_DOC_SIZE, files: 10 },
 });
 
 const uploadMarketplaceImages = multer({
-  storage: createS3Storage('marketplace'),
+  storage: createStorage('marketplace'),
   fileFilter: imageFilter,
   limits: { fileSize: MAX_IMAGE_SIZE, files: 15 },
 });
 
 const uploadInsuranceDoc = multer({
-  storage: createS3Storage('insurance'),
+  storage: createStorage('insurance'),
   fileFilter: documentFilter,
   limits: { fileSize: MAX_DOC_SIZE, files: 2 },
 });
 
 const uploadServiceImages = multer({
-  storage: createS3Storage('services'),
+  storage: createStorage('services'),
   fileFilter: imageFilter,
   limits: { fileSize: MAX_IMAGE_SIZE, files: 5 },
 });
 
 // In-memory upload for processing before S3
 const memoryUpload = multer({
-  storage: memoryStorage(),
+  storage: multer.memoryStorage(),
   fileFilter: imageFilter,
   limits: { fileSize: MAX_IMAGE_SIZE, files: 1 },
 });
@@ -129,4 +146,5 @@ module.exports = {
   uploadServiceImages,
   memoryUpload,
   handleMulterError,
+  S3_CONFIGURED,
 };
